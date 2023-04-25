@@ -1,95 +1,92 @@
 const ytdl = require('ytdl-core');
-const readline = require('readline');
 const fs = require('fs');
-const ffmpegStatic = require('ffmpeg-static');
-const { spawn } = require('child_process');
+const inquirer = require('inquirer');
+const ProgressBar = require('progress');
 
 class YoutubeDownloader {
-  constructor() {
-    this.rl = readline.createInterface({
-      input: process.stdin,
-      output: process.stdout,
-    });
-  }
-
   async start() {
-    this.rl.question('Enter YouTube link: ', async (url) => {
+    const { urls } = await inquirer.prompt([
+      {
+        type: 'input',
+        name: 'urls',
+        message: 'Enter one or more YouTube links separated by commas:',
+      },
+    ]);
+
+    const urlList = urls.split(',').map(url => url.trim());
+
+    for (const url of urlList) {
       if (!ytdl.validateURL(url)) {
-        console.log('Invalid URL. Please enter a valid YouTube URL.');
-        this.rl.close();
-        return;
+        console.log(`Invalid URL: ${url}. Shall be omitted.`);
+        continue;
       }
 
       try {
         const info = await ytdl.getInfo(url);
         const formats = ytdl.filterFormats(info.formats, 'videoandaudio');
-        formats.forEach((format, index) => {
-          console.log(`(${index + 1}) ${format.qualityLabel} - ${format.container}`);
-        });
-        console.log('(3) High quality audio - mp3');
+        const choices = formats.map((format, index) => ({
+          name: `${format.qualityLabel} - ${format.container}`,
+          value: index,
+        }));
 
-        this.rl.question('Select the quality/resolution to download (MP3 for audio only): ', async (choice) => {
-          if (choice.toUpperCase() === '3') {
-            await this.downloadAsMp3(url, info);
-          } else {
-            const formatIndex = parseInt(choice) - 1;
-            if (formatIndex < 0 || formatIndex >= formats.length) {
-              console.log('Invalid selection. Aborting.');
-              this.rl.close();
-              return;
-            }
+        const { choice } = await inquirer.prompt([
+          {
+            type: 'list',
+            name: 'choice',
+            message: 'Select quality/resolution to download:',
+            choices: choices,
+          },
+        ]);
 
-            const format = formats[formatIndex];
-            const outputPath = `video-${format.qualityLabel}.${format.container}`;
+        const format = formats[choice];
+        const outputPath = `video-${format.qualityLabel}.${format.container}`;
 
-            console.log(`Descargando video en ${format.qualityLabel}...`);
-            ytdl(url, { format: format })
-              .pipe(fs.createWriteStream(outputPath))
-              .on('finish', () => {
-                console.log(`Video descargado con éxito en "${outputPath}"`);
-                this.rl.close();
-              });
-          }
-        });
+        console.log(`Downloading video at ${format.qualityLabel}...`);
+        await this.downloadWithProgress(url, format, outputPath);
       } catch (error) {
-        console.error('Error getting information from the video:', error);
-        this.rl.close();
+        console.error('Error getting information from video:', error);
       }
-    });
-  }
-
-  async downloadAsMp3(url, info) {
-    const outputPath = `audio-${info.videoDetails.title.replace(/[^a-zA-Z0-9\s]/g, '')}.mp3`;
-    const audioFormat = ytdl.chooseFormat(info.formats, { filter: 'audioonly', quality: 'highestaudio' });
-
-    if (!audioFormat) {
-      console.error('Audio format not found.');
-      return;
     }
 
-    console.log('Downloading in MP3 format...');
+    console.log('All downloads have been completed.');
+  }
 
-    const stream = ytdl(url, { format: audioFormat });
-    const ffmpegProcess = spawn(ffmpegStatic, [
-      '-i', 'pipe:3',
-      '-vn',
-      '-f', 'mp3',
-      '-ab', '192k',
-      'pipe:4',
-    ], {
-      windowsHide: true,
-      stdio: [
-        /* Standard: stdin, stdout, stderr */
-        'inherit', 'inherit', 'inherit',
-        /* Custom: pipe:3, pipe:4 */
-        'pipe', 'pipe',
-      ],
+  async downloadWithProgress(url, format, outputPath) {
+    const stream = ytdl(url, { format: format });
+
+    await this.streamWithProgress(stream, fs.createWriteStream(outputPath), format.contentLength);
+
+    console.log(`Video successfully downloaded in "${outputPath}"`);
+  }
+
+  async streamWithProgress(inputStream, outputStream, totalBytesStr) {
+    const totalBytes = parseInt(totalBytesStr);
+  
+    if (isNaN(totalBytes)) {
+      console.log("The file size could not be determined. Download will continue without displaying the progress bar.");
+      inputStream.pipe(outputStream);
+      return new Promise((resolve, reject) => {
+        outputStream.on('finish', resolve);
+        outputStream.on('error', reject);
+      });
+    }
+  
+    const progressBar = new ProgressBar('[:bar] :percent :etas', {
+      complete: '=',
+      incomplete: ' ',
+      width: 20,
+      total: totalBytes,
     });
-
-    stream.pipe(ffmpegProcess.stdio[3]);
-    ffmpegProcess.stdio[4].pipe(fs.createWriteStream(outputPath)).on('finish', () => {
-      console.log(`Audio descargado con éxito en "${outputPath}"`);
-      this.rl.close();
+  
+    inputStream.on('data', chunk => {
+      progressBar.tick(chunk.length);
+    });
+  
+    inputStream.pipe(outputStream);
+  
+    return new Promise((resolve, reject) => {
+      outputStream.on('finish', resolve);
+      outputStream.on('error', reject);
     });
   }
 }
