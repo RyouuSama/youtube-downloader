@@ -13,9 +13,9 @@ class YoutubeDownloader {
   }
 
   async start() {
-    this.rl.question('Ingresa el enlace de YouTube: ', async (url) => {
+    this.rl.question('Enter YouTube link: ', async (url) => {
       if (!ytdl.validateURL(url)) {
-        console.log('URL no válida. Por favor, ingresa una URL de YouTube válida.');
+        console.log('Invalid URL. Please enter a valid YouTube URL.');
         this.rl.close();
         return;
       }
@@ -26,15 +26,15 @@ class YoutubeDownloader {
         formats.forEach((format, index) => {
           console.log(`(${index + 1}) ${format.qualityLabel} - ${format.container}`);
         });
-        console.log('(3) Audio de máxima calidad - mp3');
+        console.log('(3) High quality audio - mp3');
 
-        this.rl.question('Selecciona la calidad/resolución para descargar (MP3 para solo audio): ', async (choice) => {
+        this.rl.question('Select the quality/resolution to download (MP3 for audio only): ', async (choice) => {
           if (choice.toUpperCase() === '3') {
             await this.downloadAsMp3(url, info);
           } else {
             const formatIndex = parseInt(choice) - 1;
             if (formatIndex < 0 || formatIndex >= formats.length) {
-              console.log('Selección no válida. Abortando.');
+              console.log('Invalid selection. Aborting.');
               this.rl.close();
               return;
             }
@@ -52,7 +52,7 @@ class YoutubeDownloader {
           }
         });
       } catch (error) {
-        console.error('Error al obtener información del video:', error);
+        console.error('Error getting information from the video:', error);
         this.rl.close();
       }
     });
@@ -63,11 +63,11 @@ class YoutubeDownloader {
     const audioFormat = ytdl.chooseFormat(info.formats, { filter: 'audioonly', quality: 'highestaudio' });
 
     if (!audioFormat) {
-      console.error('No se encontró el formato de audio.');
+      console.error('Audio format not found.');
       return;
     }
 
-    console.log('Descargando en formato MP3...');
+    console.log('Downloading in MP3 format...');
 
     const stream = ytdl(url, { format: audioFormat });
     const ffmpegProcess = spawn(ffmpegStatic, [
